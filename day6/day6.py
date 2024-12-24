@@ -25,15 +25,6 @@ class LinkedList:
 
         return totalStr
 
-    def insertAtStart(self, data):
-        newNode = Node(data)
-        if self.head == None:
-            self.head = newNode
-            return
-
-        newNode.next = self.head
-        self.head = newNode
-
     def insertAtEnd(self, data):
         newNode = Node(data)
         if self.head == None:
@@ -46,22 +37,6 @@ class LinkedList:
 
         current.next = newNode
 
-    def insert(self, index: int, data):
-        if index == 0:
-            self.insertAtStart(data)
-            return
-
-        pos = 0
-        current = self.head
-        while current != None and pos + 1 != index:
-            pos += 1
-            current = current.next
-
-        if current != None:
-            newNode = Node(data)
-            newNode.next = current.next
-            current.next = newNode
-
     def existsWithNext(self, data, nextData) -> bool:
         if self.head == None:
             return False
@@ -71,23 +46,6 @@ class LinkedList:
             if current.data == data and current.next.data == nextData:
                 return True
             current = current.next
-
-        return False
-
-    def isCyclic(self) -> bool:
-        if self.head == None:
-            return False
-
-        slow = self.head
-        fast = self.head.next
-
-        while fast != None and fast.next != None:
-            if slow == fast:
-                return True
-
-            slow = slow.next
-
-            fast = fast.next.next
 
         return False
 
@@ -133,7 +91,7 @@ class GuardMap:
     def isValidCoordinates(self, x: int, y: int) -> bool:
         return 0 <= x < self.cols and 0 <= y < self.rows
 
-    def numDistinctPositions(self) -> int:
+    def getDistinctPositions(self) -> int:
         positions = set()
 
         posX = self.posX
@@ -158,7 +116,7 @@ class GuardMap:
             posX += self.directions[dirIdx][0]
             posY += self.directions[dirIdx][1]
 
-        return len(positions)
+        return positions
 
     def doesMapLoop(self, blockageX: int, blockageY: int) -> bool:
         positions = LinkedList()
@@ -172,19 +130,18 @@ class GuardMap:
             dirX = self.directions[dirIdx][0]
             dirY = self.directions[dirIdx][1]
 
+            # If current position exists with same next, there is a cycle
+            if positions.existsWithNext((posX, posY), (posX + dirX, posY + dirY)):
+                return True
+            else:
+                positions.insertAtEnd((posX, posY))
+
             # Provided the next step is in the map
             if self.isValidCoordinates(posX + dirX, posY + dirY):
                 # If is has a blockage, turn 90
                 if self.map[posY + dirY][posX + dirX] == '#' or \
                     (posX + dirX == blockageX and posY + dirY == blockageY):
                     dirIdx = (dirIdx + 1) % 4
-
-            # Add current location to saved
-            # TODO: only insert if that Node doesn't exist in the list
-            if positions.existsWithNext((posX, posY), (posX + dirX, posY + dirY)):
-                return True
-            else:
-                positions.insertAtEnd((posX, posY))
 
             # Update position for next round
             posX += self.directions[dirIdx][0]
@@ -200,25 +157,21 @@ def setup():
         gm = GuardMap(file)
 
 def part1() -> int:
-    return gm.numDistinctPositions()
+    return len(gm.getDistinctPositions())
 
 def part2() -> int:
     numMapsWithLoop = 0
 
-    for i in range(gm.rows):
-        for j in range(gm.cols):
-            print(j, i)
-            if gm.doesMapLoop(j, i):
-                numMapsWithLoop += 1
+    originalDistinctPath = gm.getDistinctPositions()
 
-    # print()
-    # print(gm.doesMapLoop(3, 6))
+    for x, y in originalDistinctPath:
+        if gm.map[y][x] != '#' and gm.doesMapLoop(x, y):
+            numMapsWithLoop += 1
 
     return numMapsWithLoop
 
 if __name__ == "__main__":
     setup()
-    print("Part 1:\t", part1())
 
-    setup()
-    print("Part 2:\t", part2())
+    print("Part 1:\t", part1())
+    print("Part 2:\t", part2()) # at what cost...

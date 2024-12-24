@@ -1,153 +1,124 @@
+import sys
 from pathlib import Path
 from typing import TextIO
 
-gm = None
+sys.path.append('{}/utils'.format(Path(__file__).parent.parent.resolve()))
+from grid import Grid, Point
 
-class Node:
-    def __init__(self, data):
-        self.data = data
-        self.next = None
 
-    def __str__(self):
-        return str(self.data)
-
-class LinkedList:
-    def __init__(self):
-        self.head = None
-
-    def __str__(self):
-        totalStr = ""
-
-        current = self.head
-        while current != None:
-            totalStr += f"{str(current)}, "
-            current = current.next
-
-        return totalStr
-
-    def insertAtEnd(self, data):
-        newNode = Node(data)
-        if self.head == None:
-            self.head = newNode
-            return
-
-        current = self.head
-        while current.next:
-            current = current.next
-
-        current.next = newNode
-
-    def existsWithNext(self, data, nextData) -> bool:
-        if self.head == None:
-            return False
-
-        current = self.head
-        while current != None and current.next != None:
-            if current.data == data and current.next.data == nextData:
-                return True
-            current = current.next
-
-        return False
-
-class GuardMap:
-    map = []
-    rows = 0
-    cols = 0
-    posX, posY = 0, 0 # col, row
-    dirIdx = 0
-    directions = [
-        (0, -1), # north
-        (1, 0), # east
-        (0, 1), # south
-        (-1, 0) # west
+class GuardMap(Grid):
+    DIRECTIONS = [
+        Point(0, -1),  # north
+        Point(1, 0),  # east
+        Point(0, 1),  # south
+        Point(-1, 0)  # west
     ]
+    BLOCKAGE = '#'
 
     def __init__(self, file: TextIO):
-        self.map = [line.strip() for line in file]
+        super().__init__([line.strip() for line in file])
 
-        if len(set(map(len, self.map))) != 1:
-            raise ValueError("Disparate number of characters per line")
+        # Get starting location and direction
+        for point in self.points:
+            if self.getValueAtPoint(point) == '^':
+                self._startPos = point
+                self._startDirIdx = 0
+                break
+            if self.getValueAtPoint(point) == '>':
+                self._startPos = point
+                self._startDirIdx = 1
+                break
+            if self.getValueAtPoint(point) == 'v':
+                self._startPos = point
+                self._startDirIdx = 2
+                break
+            if self.getValueAtPoint(point) == '<':
+                self._startPos = point
+                self._startDirIdx = 3
+                break
+        # Init copies to modify as path is traversed
+        self._guardPos = self._startPos
+        self._guardDirIdx = self._startDirIdx
 
-        self.rows = len(self.map)
-        self.cols = len(self.map[0])
+        self._visited = []  # Point
+        # where int is direction index
+        self._visitedWithDir = set(tuple[Point, int])
 
-        i = 0
-        while i < len(self.map):
-            line = self.map[i]
-            if '^' in line:
-                self.posX, self.posY = line.index('^'), i
-                self.dirIdx = 0
-            elif '>' in line:
-                self.posX, self.posY = line.index('>'), i
-                self.dirIdx = 1
-            elif 'v' in line:
-                self.posX, self.posY = line.index('v'), i
-                self.dirIdx = 2
-            elif '<' in line:
-                self.posX, self.posY = line.index('<'), i
-                self.dirIdx = 3
-            i += 1
+        self._isLoop = False
+        self._extraBlockages = []  # Point
 
-    def isValidCoordinates(self, x: int, y: int) -> bool:
-        return 0 <= x < self.cols and 0 <= y < self.rows
+        # Visit the starting location
+        self._visit
 
-    def getDistinctPositions(self) -> int:
-        positions = set()
+    @property
+    def visitedPoints(self):
+        return self._visited
 
-        posX = self.posX
-        posY = self.posY
-        dirIdx = self.dirIdx
+    @property
+    def isLoop(self):
+        return self._isLoop
 
-        while self.isValidCoordinates(posX, posY):
-            # Current position is visited and valid
-            positions.add((posX, posY))
+    def reset(self):
+        self._guardPos = self._startPos
+        self._guardDirIdx = self._startDirIdx
 
-            # Convenience
-            dirX = self.directions[dirIdx][0]
-            dirY = self.directions[dirIdx][1]
+        self._visited = []
+        self._visitedWithDir = set()
 
-            # Provided the next step is in the map
-            if self.isValidCoordinates(posX + dirX, posY + dirY):
-                # If is has a blockage, turn 90
-                if self.map[posY + dirY][posX + dirX] == '#':
-                    dirIdx = (dirIdx + 1) % 4
+        self._isLoop = False
 
-            # Update position for next round
-            posX += self.directions[dirIdx][0]
-            posY += self.directions[dirIdx][1]
+        self._visit()
+        self._clearBlockages()
 
-        return positions
+    def addBlockage(self, point: Point):
+        self._extraBlockages.append((point, self.getValueAtPoint(point)))
+        self.setValueAtPoint(point, GuardMap.BLOCKAGE)
 
-    def doesMapLoop(self, blockageX: int, blockageY: int) -> bool:
-        positions = LinkedList()
+    def step(self) -> bool:
+        while True:
+            # Get the next position in direction of travel
+            next = self._guardPos + GuardMap.DIRECTIONS[self._guardDirIdx]
 
-        posX = self.posX
-        posY = self.posY
-        dirIdx = self.dirIdx
+            # Stop if off the grid
+            if not self.isValidPoint(next):
+                return False
 
-        while self.isValidCoordinates(posX, posY):
-            # Convenience
-            dirX = self.directions[dirIdx][0]
-            dirY = self.directions[dirIdx][1]
+            # If next position is a block, reorient and try step again
+            if self.getValueAtPoint(next) == GuardMap.BLOCKAGE:
+                self._guardDirIdx = (self._guardDirIdx +
+                                     1) % len(GuardMap.DIRECTIONS)
+                continue
 
-            # If current position exists with same next, there is a cycle
-            if positions.existsWithNext((posX, posY), (posX + dirX, posY + dirY)):
-                return True
-            else:
-                positions.insertAtEnd((posX, posY))
+            # Valid step, move to this position
+            self._guardPos = next
+            self._visit()
+            return True
 
-            # Provided the next step is in the map
-            if self.isValidCoordinates(posX + dirX, posY + dirY):
-                # If is has a blockage, turn 90
-                if self.map[posY + dirY][posX + dirX] == '#' or \
-                    (posX + dirX == blockageX and posY + dirY == blockageY):
-                    dirIdx = (dirIdx + 1) % 4
+    def stepUntilFalse(self):
+        while self.step():
+            pass
 
-            # Update position for next round
-            posX += self.directions[dirIdx][0]
-            posY += self.directions[dirIdx][1]
+    def _visit(self):
+        # Save every visited position
+        self._visited.append(self._guardPos)
 
-        return False
+        # Save (position, direction) in set if it's the first visit
+        config = (self._guardPos, self._guardDirIdx)
+        if config in self._visitedWithDir:
+            self._isLoop = True
+            return
+        else:
+            self._visitedWithDir.add(config)
+
+    def _clearBlockages(self):
+        for point, originalVal in self._extraBlockages:
+            self.setValueAtPoint(point, originalVal)
+
+        self._extraBlockages = []
+
+
+gm: GuardMap
+
 
 def setup():
     global gm
@@ -156,22 +127,34 @@ def setup():
     with open(p, 'r') as file:
         gm = GuardMap(file)
 
+
 def part1() -> int:
-    return len(gm.getDistinctPositions())
+    gm.reset()
+    gm.stepUntilFalse()
+    return len(set(gm.visitedPoints))
+
 
 def part2() -> int:
-    numMapsWithLoop = 0
+    gm.reset()
 
-    originalDistinctPath = gm.getDistinctPositions()
+    # Unique route waypoints on first pass, throw away start pos
+    gm.stepUntilFalse()
+    route = [pos for pos in list(set(gm.visitedPoints[1:]))]
 
-    for x, y in originalDistinctPath:
-        if gm.map[y][x] != '#' and gm.doesMapLoop(x, y):
-            numMapsWithLoop += 1
+    numLoops = 0
+    for pos in route:
+        gm.reset()
+        gm.addBlockage(pos)
+        while gm.step():
+            if gm.isLoop:
+                numLoops += 1
+                break
 
-    return numMapsWithLoop
+    return numLoops
+
 
 if __name__ == "__main__":
     setup()
 
     print("Part 1:\t", part1())
-    print("Part 2:\t", part2()) # at what cost...
+    print("Part 2:\t", part2())
